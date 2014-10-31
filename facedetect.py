@@ -202,7 +202,8 @@ def __main__():
                         cv2.cv.PutText(cv2.cv.fromarray(im), line, (x, h), font, fg)
                         h += fontHeight
 
-        cv2.imwrite(args.output, im)
+        if len(features):
+            cv2.imwrite(args.output, im)
 
     return 0
 
