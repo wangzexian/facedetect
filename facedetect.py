@@ -87,13 +87,15 @@ def __main__():
     ap.add_argument('--best', action="store_true",
                     help='Extract only the best matching face')
     ap.add_argument('--crop', action="store_true",
-                    help='Crop face. Requires --biggest or --best and -o.')
-    ap.add_argument('--resize', type=int,
-                    help='Resize output image to this size. Requires --crop.')
-    ap.add_argument('--scale', type=float, default=1,
-                    help='Enlarge/reduce detected face. Requires --crop.')
+                    help='Crop face. Requires --output and --biggest or --best.')
+    ap.add_argument('--crop-width', type=int,
+                    help='Resize cropped image to this width. Requires --crop.')
+    ap.add_argument('--crop-height', type=int,
+                    help='Resize cropped image to this height. Requires --crop.')
+    ap.add_argument('--factor', type=float, default=1,
+                    help='Enlarge/reduce detected face box by a factor.')
     ap.add_argument('--grayscale', action="store_true",
-                    help='Convert image to grayscale. Requires --crop.')
+                    help='Convert image to grayscale.')
     ap.add_argument('-c', '--center', action="store_true",
                     help='Print only the center coordinates')
     ap.add_argument('-q', '--query', action="store_true",
@@ -116,12 +118,12 @@ def __main__():
         ap.error("--crop needs --biggest or --best.")
         return 1
 
-    if args.resize and not args.crop:
-        ap.error("--resize needs --crop.")
+    if args.crop_width and not args.crop:
+        ap.error("--crop-width needs --crop.")
         return 1
 
-    if args.grayscale and not args.crop:
-        ap.error("--grayscale needs --crop.")
+    if args.crop_height and not args.crop:
+        ap.error("--crop-height needs --crop.")
         return 1
 
     check_profiles()
@@ -159,20 +161,23 @@ def __main__():
         fontHeight = cv2.cv.GetTextSize("", font)[0][1] + 5
 
         for i in range(len(features)):
+            # if best found, skip everything but the best
             if best is not None and i != best and not args.debug:
                 continue
 
-            rect = features[i]
+            (x, y, width, height) = features[i]
 
-            # scale width and height
-            width = int(rect[2] * args.scale)
-            height = int(rect[3] * args.scale)
             # calculate center of the face
-            center_x = int(rect[0] + rect[2] / 2)
-            center_y = int(rect[1] + rect[3] / 2) 
-            # calculate new left top
-            x = center_x - int(width / 2)
-            y = center_y - int(height / 2)
+            center_x = int(x + width / 2)
+            center_y = int(y + height / 2) 
+
+            if args.factor != 1:
+                # scale width and height
+                width = int(width * args.factor)
+                height = int(height * args.factor)
+                # calculate new left top
+                x = int(center_x - width / 2)
+                y = int(center_y - height / 2)
 
             if args.center:
                 print("{} {}".format(center_x, center_y))
@@ -183,11 +188,14 @@ def __main__():
                 # crop image
                 im = im[y:(y + height), x:(x + width)]
                 # resize if needed
-                if args.resize:
-                    im = cv2.resize(im, (int(width * args.resize / height), args.resize))
-                # convert to grayscale if needed
-                if args.grayscale:
-                    im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) 
+                if args.crop_width or args.crop_height:
+                    # if only one dimension was given, calculate the other one
+                    if args.crop_width and not args.crop_height:
+                        args.crop_height = int(height * args.crop_width / width)
+                    elif args.crop_height and not args.crop_height:
+                        args.crop_width = int(width * args.crop_height / height)
+
+                    im = cv2.resize(im, (args.crop_width, args.crop_height))
             else:
                 fg = (0, 255, 255) if i == best else (255, 255, 255)
                 cv2.rectangle(im, (x, y), (x + width, y + height), (0, 0, 0), 4)
@@ -202,7 +210,12 @@ def __main__():
                         cv2.cv.PutText(cv2.cv.fromarray(im), line, (x, h), font, fg)
                         h += fontHeight
 
+        # write image out only if face detected
         if len(features):
+            # convert to grayscale if needed
+            if args.grayscale:
+                im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY) 
+
             cv2.imwrite(args.output, im)
 
     return 0
